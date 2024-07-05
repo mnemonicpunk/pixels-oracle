@@ -6,6 +6,7 @@
   let groups = [];
   let selectedKey = null;
   let searchQuery = "";
+  let jsonLoaded = false; // New variable to track if JSON data is loaded
 
   const loadJson = (event) => {
     const files = event.dataTransfer
@@ -28,12 +29,12 @@
           count: Object.keys(jsonData[group]).length,
           open: false,
         }));
+        jsonLoaded = true; // Set jsonLoaded to true
       } catch (error) {
         console.error("Error parsing JSON file:", error);
       }
     };
     reader.readAsText(file);
-    event.target.style.display = "none"; // Hide drop zone
   };
 
   const selectKey = (groupName, key) => {
@@ -67,6 +68,73 @@
     selectedKey = key;
   }
 
+  // Function to fetch the recent game library
+  async function fetchRecentGameLib() {
+    const baseAPIURL = 'https://pixels-server.pixels.xyz/v1';
+    const tenant = 'pixels';
+
+    // Fetch the current version information
+    const versionResponse = await fetch('https://play.pixels.xyz/version.json');
+    const versionData = await versionResponse.text();
+    const clientVersion = versionData.trim();
+
+    // Check if the version is correctly fetched
+    if (!clientVersion) {
+      throw new Error('Version not found in the version data');
+    }
+
+    // Function to hash the version string
+    function hashVersion(version) {
+      const versionMap = {
+        "6.122": "87bbbwei20",
+        "6.209": "--78DEVO+spins"
+      };
+
+      if (versionMap[version]) {
+        return versionMap[version];
+      }
+
+      let hash = 0;
+      for (let i = 0; i < version.length; i++) {
+        const charCode = version.charCodeAt(i) + i - 17;
+        hash = (hash << 5) - hash + charCode;
+        hash |= 0; // Convert to 32bit integer
+      }
+      return hash;
+    }
+
+    // Set up the headers with the hashed client version
+    const headers = {
+      'x-client-version': hashVersion(clientVersion)
+    };
+
+    // Fetch the game library
+    const response = await fetch(`${baseAPIURL}/game/library?tenant=${tenant}&ver=${clientVersion}`, {
+      headers: headers
+    });
+
+    // Parse the JSON response
+    const gameLibrary = await response.json();
+    return gameLibrary;
+  }
+
+  // Handler to fetch the prod game library and update jsonData
+  async function handleFetchProdGameLib() {
+    try {
+      jsonData = await fetchRecentGameLib();
+      groups = Object.keys(jsonData).map((group) => ({
+        name: group,
+        keys: Object.keys(jsonData[group]),
+        count: Object.keys(jsonData[group]).length,
+        open: false,
+      }));
+      jsonLoaded = true; // Set jsonLoaded to true
+    } catch (error) {
+      console.error("Error fetching game library:", error);
+      alert("Error fetching game lib:\n" + error +"\n\nMay need to use a CORS unblock extension.");
+    }
+  }
+
   onMount(() => {
     // Add event listeners for drag and drop
     const dropZone = document.getElementById("drop-zone");
@@ -90,15 +158,19 @@
 
 <div id="container">
   <div id="list">
-    <div id="drop-zone">
-      <p>Drag & drop a JSON file here</p>
-      <input
-        type="file"
-        accept=".json"
-        style="display: none;"
-        on:change={loadJson}
-      />
-    </div>
+    {#if !jsonLoaded}
+      <div id="drop-zone">
+        <p>Drag & drop a JSON file here</p>
+        <input
+          type="file"
+          accept=".json"
+          style="display: none;"
+          on:change={loadJson}
+        />
+      </div>
+      <div style="padding: 22px;">- OR -</div>
+      <button on:click={handleFetchProdGameLib}>Fetch prod game lib</button>
+    {/if}
 
     {#if jsonData}
       <input type="text" placeholder="Search keys..." on:input={onSearch} />
